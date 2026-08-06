@@ -161,7 +161,7 @@ def test_tool_call_knobs_cover_every_selectable_provider():
 def test_declared_knobs_match_the_real_bind_tools_signature(provider, knob):
     """The table claims a knob — the driver must really accept it.
 
-    Measured, not assumed: groq and mistralai take neither `strict` nor
+    Measured, not assumed: groq takes neither `strict` nor
     `parallel_tool_calls`, perplexity takes `strict` but not
     `parallel_tool_calls`. Getting this wrong is a TypeError at the first tool
     call, i.e. in production rather than here.
@@ -177,4 +177,51 @@ def test_declared_knobs_match_the_real_bind_tools_signature(provider, knob):
     assert knob in params, (
         f"_TOOL_CALL_KNOBS says {provider} accepts {knob!r}, but "
         f"{cls.__name__}.bind_tools does not take it"
+    )
+
+
+def test_no_wizard_provider_needs_an_uninstalled_extra():
+    """The wizard must not offer what a default install cannot construct.
+
+    Mistral was selectable while langchain-mistralai shipped only in the
+    `[mistral]` extra, so choosing it wrote a config that failed at the first
+    real call. It was removed on 2026-08-06; this keeps the shape from coming
+    back unnoticed. A provider MAY declare an extra — the wizard handles that
+    path — but then the extra has to exist in pyproject.
+    """
+    import tomllib
+    from pathlib import Path
+
+    from olav.cli.llm_setup import PROVIDERS
+
+    root = Path(__file__).resolve().parents[2]
+    data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    declared_extras = set(data["project"].get("optional-dependencies", {}))
+
+    missing = sorted(
+        f"{p.label} needs olav[{p.extra}]"
+        for p in PROVIDERS
+        if p.extra and p.extra not in declared_extras
+    )
+    assert not missing, (
+        f"wizard offers providers whose extra is not declared: {missing}"
+    )
+
+
+def test_mistral_support_is_fully_removed():
+    """All four touch points, so a partial revert cannot leave a broken menu."""
+    import tomllib
+    from pathlib import Path
+
+    from olav.cli.llm_setup import PROVIDERS
+    from olav.core.llm import _TOOL_CALL_KNOBS
+
+    root = Path(__file__).resolve().parents[2]
+    data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert "mistralai" not in {p.model_provider for p in PROVIDERS}
+    assert "mistralai" not in _TOOL_CALL_KNOBS
+    assert "mistral" not in data["project"].get("optional-dependencies", {})
+    assert not any(
+        "mistralai" in dep for dep in data["project"].get("dependencies", [])
     )

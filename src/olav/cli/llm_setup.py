@@ -54,6 +54,12 @@ class Provider:
 # The one exception is deliberate: a **local** OpenAI-compatible server
 # (llama.cpp / vLLM) really is generic, so ``"openai"`` is correct there rather
 # than a compromise.
+# Mistral was removed 2026-08-06: it was selectable in this menu while its
+# driver shipped only in the `[mistral]` extra, so a plain install offered a
+# provider it could not construct. It was also one of nine providers that had
+# never had a request sent to it. Re-adding it means shipping the driver by
+# default (+28MB, pulls `tokenizers` back) or accepting that gap knowingly, plus
+# a request-payload test — see tests/governance/test_provider_request_payload.py.
 PROVIDERS: list[Provider] = [
     Provider("OpenAI", "openai", "", True),
     Provider("DeepSeek", "deepseek", "https://api.deepseek.com/v1", True,
@@ -67,8 +73,6 @@ PROVIDERS: list[Provider] = [
     Provider("Groq", "groq", "https://api.groq.com/openai/v1", True),
     Provider("Together AI", "together", "https://api.together.xyz/v1", True),
     Provider("Perplexity", "perplexity", "https://api.perplexity.ai", True),
-    Provider("Mistral", "mistralai", "https://api.mistral.ai/v1", True,
-             extra="mistral"),
     Provider("Local server (Ollama / llama.cpp / vLLM)", "openai",
              "http://localhost:11434/v1", True, key_optional=True),
     Provider("Custom (enter your own base_url)", "openai", None, True),
@@ -104,6 +108,13 @@ def _driver_available(provider: "Provider") -> bool:
     Only meaningful for entries with an ``extra``: everything else is a declared
     dependency and always present. Uses ``find_spec`` so probing cannot execute
     the package.
+
+    LEGACY-KEEP: no provider currently declares an ``extra`` — Mistral, the only
+    one that did, was removed 2026-08-06. The machinery stays because it guards a
+    real trap: a wizard that accepts a provider whose driver is missing writes a
+    config that only fails later, at the first real call, long after it said
+    everything was fine (the on-CPU embedding option had exactly this bug). The
+    next provider shipped in an extra needs the guard, not a rewrite of it.
     """
     if not provider.extra:
         return True

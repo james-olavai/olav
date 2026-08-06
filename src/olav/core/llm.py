@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 #
 # Measured from ``inspect.signature`` per driver, not assumed: passing an
 # unsupported kwarg is a TypeError, and "they're all OpenAI-compatible" is a
-# spectrum rather than a fact — groq and mistralai take neither ``strict`` nor
+# spectrum rather than a fact — groq takes neither ``strict`` nor
 # ``parallel_tool_calls``, while perplexity takes ``strict`` but not
 # ``parallel_tool_calls``.
 #
@@ -98,7 +98,6 @@ _TOOL_CALL_KNOBS: dict[str, frozenset[str]] = {
     # These take only tools/tool_choice (google_genai also tool_config), so
     # there is nothing to default — passing either would be a TypeError.
     "groq":        frozenset(),
-    "mistralai":   frozenset(),
     "ollama":      frozenset(),
     "google_genai": frozenset(),
 }

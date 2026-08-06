@@ -46,7 +46,6 @@ class _FakeLLM:
     ("anthropic",  {}),
     ("perplexity", {}),
     ("groq",       {}),                        # accepts neither
-    ("mistralai",  {}),
     ("ollama",     {}),
     ("google_genai", {}),
 ])
