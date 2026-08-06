@@ -89,6 +89,10 @@ class InitCommand(BaseCommand):
 
         # api.json — LLM skeleton (skip if already exists)
         api_json_path = base_dir / "config" / "api.json"
+        # Whether THIS run created the config. Only a genuinely fresh install may
+        # have its auth.mode chosen for it; an existing api.json carries the
+        # operator's decision (see _init_admin_user).
+        self._wrote_fresh_api_json = not api_json_path.exists()
         if not api_json_path.exists():
             api_json_path.write_text(
                 json.dumps(
@@ -302,8 +306,14 @@ class InitCommand(BaseCommand):
             except ImportError:
                 _token_mode_available = False
 
+            # Only choose the mode on a config this run created. The old
+            # condition was `if mode != "token": set token`, which overwrote
+            # ANY other value — including an explicit `"mode": "none"` the
+            # operator had set — so re-bootstrapping after e.g. a model change
+            # silently flipped the install's auth posture with no message.
+            _fresh = getattr(self, "_wrote_fresh_api_json", False)
             api_json_path = base_dir / "config" / "api.json"
-            if api_json_path.exists() and _token_mode_available:
+            if api_json_path.exists() and _token_mode_available and _fresh:
                 try:
                     api_data = json.loads(api_json_path.read_text(encoding="utf-8"))
                     if api_data.get("auth", {}).get("mode") != "token":

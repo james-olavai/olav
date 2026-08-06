@@ -235,3 +235,32 @@ def test_init_idempotent_for_user(tmp_path, monkeypatch) -> None:
     assert "platform ready" in result2, (
         f"Second init should succeed, got: {result2}"
     )
+
+
+def test_init_does_not_overwrite_an_operator_chosen_auth_mode(tmp_path, monkeypatch):
+    """Re-running init must not silently change the install's auth posture.
+
+    Reported 2026-08-06: after changing the model, auth.mode had gone from
+    "none" to "token". The write was guarded by `if mode != "token"`, i.e. it
+    overwrote every other value — including an explicit "none" — whenever the
+    admin user was created. Re-bootstrapping (a missing api.json, a new
+    OLAV_HOME) was enough to trigger it, and nothing said so.
+
+    Now the mode is only chosen on a config that this run created.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    # An install that already exists, with the operator's explicit choice.
+    cfg_dir = tmp_path / ".olav" / "config"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "api.json").write_text(
+        json.dumps({"llm": {"api_key": "x"}, "auth": {"mode": "none"}}, indent=2),
+        encoding="utf-8",
+    )
+
+    _run_init(tmp_path)
+
+    data = json.loads((cfg_dir / "api.json").read_text(encoding="utf-8"))
+    assert data["auth"]["mode"] == "none", (
+        f"init overwrote the operator's auth.mode, got {data['auth']}"
+    )

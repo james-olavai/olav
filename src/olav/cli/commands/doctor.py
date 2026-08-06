@@ -45,6 +45,7 @@ class DoctorCommand(BaseCommand):
             self._check_workspace_integrity(),
             self._check_llm(),
             self._check_embedding(),
+            self._check_auth(),
             self._check_agents(),
             self._check_subagents(),
             self._check_tools(),
@@ -238,6 +239,64 @@ class DoctorCommand(BaseCommand):
             return " · ".join(parts)
         except Exception:  # noqa: BLE001 — summary is best-effort decoration
             return ""
+
+    def _check_auth(self) -> dict:
+        """Is the configured auth mode one this install can actually serve?
+
+        `auth.mode` lives in .olav/config/api.json (env override:
+        OLAV_AUTH_MODE, default "none"). The token/server/ldap providers moved
+        to olav-ent, and get_auth_provider raises for them by design rather than
+        silently downgrading to OS identity — so a config naming one of those on
+        a stock install makes every query path fail while init and the rest of
+        doctor still report success. That is exactly how a clean-VM install came
+        out bricked (dev_docs/115 §1).
+
+        It also surfaces the mode itself, because `olav init` sets token when it
+        creates the admin user: an operator who expects "none" needs to be able
+        to see that it changed without reading api.json.
+        """
+        try:
+            from olav.core.config import ConfigLoader
+
+            mode = ConfigLoader().auth.mode
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "name": "auth",
+                "ok": False,
+                "detail": f"config unreadable ({exc})",
+                "fix": "run `olav init` to create .olav/config/api.json",
+            }
+
+        source = "api.json"
+        if os.environ.get("OLAV_AUTH_MODE"):
+            source = "OLAV_AUTH_MODE env"
+
+        try:
+            from olav.core.auth.provider import get_auth_provider
+
+            provider = type(get_auth_provider(mode)).__name__
+        except NotImplementedError as exc:
+            return {
+                "name": "auth",
+                "ok": False,
+                "detail": f"mode={mode!r} ({source}) cannot be served — {exc}",
+                "fix": "install olav-ent, or set auth.mode to 'none' "
+                       "(OS identity) in .olav/config/api.json",
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "name": "auth",
+                "ok": False,
+                "detail": f"mode={mode!r} ({source}) failed to load ({exc})",
+                "fix": "check auth.mode in .olav/config/api.json",
+            }
+
+        return {
+            "name": "auth",
+            "ok": True,
+            "detail": f"mode={mode} ({source}) → {provider}",
+            "fix": None,
+        }
 
     def _check_embedding(self) -> dict:
         try:
