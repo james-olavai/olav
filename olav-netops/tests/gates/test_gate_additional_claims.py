@@ -188,11 +188,26 @@ class TestNE01DryRunCheck:
         assert "--dry-run" in content, "--dry-run argument not found in run.py"
         assert "store_true" in content, "dry-run should be declared as action='store_true'"
 
-    def test_dry_run_exits_zero_with_completion_message(self):
-        """--dry-run exits 0 and prints structured completion message."""
+    def test_dry_run_reports_the_environment_it_finds(self):
+        """--dry-run must run the environment check and report its verdict.
+
+        Asserted in both environments rather than skipped in one. This test
+        previously demanded exit 0 unconditionally; it had been dead (pointed
+        at `ops/netops_init/`, a path that has not existed since the agent
+        directory was renamed) and un-skipping it turned CI red, because a
+        plain `olav init` + `skill install` deploys only `hosts.yaml.example`.
+        Exit 0 is a statement about the *runner's inventory*, not about the
+        product.
+
+        What C-NE-01 actually claims is that the check works. With an
+        inventory that means a clean pass; without one it means a specific,
+        actionable refusal. Both are verifiable, so neither environment needs
+        a skip — and a silent skip is how this file rotted in the first place.
+        """
         run_py = ROOT_WORKSPACE / "netops/netops_init/run.py"
-        if not run_py.exists():
-            pytest.skip("netops_init/run.py not found")
+        assert run_py.exists(), (
+            f"{run_py} missing — skipping here would hide the whole claim"
+        )
         result = subprocess.run(
             [sys.executable, str(run_py), "--dry-run"],
             capture_output=True,
@@ -200,14 +215,31 @@ class TestNE01DryRunCheck:
             cwd=str(ROOT_REPO),
             timeout=30,
         )
-        assert result.returncode == 0, (
-            f"--dry-run should exit 0; "
-            f"stdout={result.stdout!r}, stderr={result.stderr!r}"
-        )
         combined = result.stdout + result.stderr
-        assert "dry-run" in combined.lower() or "Dry-run" in combined, (
-            f"Expected dry-run message in output, got: {combined!r}"
+        assert "environment check" in combined.lower(), (
+            f"--dry-run produced no environment-check report: {combined!r}"
         )
+
+        inventory = ROOT_REPO / ".olav/config/nornir/hosts.yaml"
+        if inventory.exists():
+            assert result.returncode == 0, (
+                f"inventory is present at {inventory}, so --dry-run should "
+                f"pass; stdout={result.stdout!r}, stderr={result.stderr!r}"
+            )
+            assert "dry-run" in combined.lower(), (
+                f"Expected dry-run completion message, got: {combined!r}"
+            )
+        else:
+            # The CI shape: the check must fail loudly and name what is
+            # missing, not exit 0 on an unconfigured host.
+            assert result.returncode != 0, (
+                "no inventory present, yet --dry-run reported success — the "
+                "environment check is not actually checking"
+            )
+            assert "hosts.yaml" in combined, (
+                f"refusal must name the missing file so an operator can act; "
+                f"got: {combined!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
