@@ -176,6 +176,45 @@ jobs:
         run: uv run pytest tests/governance/ -q --tb=short -m netops
 
   # ─────────────────────────────────────────────────────────────
+  # Layer 1b: Gate tests — the per-claim verification suites
+  # ─────────────────────────────────────────────────────────────
+  # Added 2026-08-06. GitHub's test.yml has run these since it was written;
+  # this file — the MERGE GATE — did not, so `olav-netops/tests/gates/` sat
+  # red for months with nobody looking: three of its classes still imported
+  # `ops/tools/execute_cli`, a path retired by the rev ~282-299 tools→scripts
+  # migration, which is a collection ERROR rather than a skip.
+  #
+  # Expect most of tests/gates/ to SKIP here: every phase gate guards on real
+  # lab data in main.duckdb (`_HAS_LAB_DATA` / `_HAS_PHASE3_DATA`) and CI has
+  # none. That is intended — the job's value is that the suites still *import
+  # and collect*, which is exactly the failure mode that hid here.
+  gates:
+    name: Gate tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Bootstrap workspace
+        run: uv run olav init
+
+      - name: Install netops skill pack
+        run: uv run olav skill install olav-netops
+
+      - name: Run gate tests — platform
+        run: uv run pytest tests/gates/ -q --tb=short
+
+      - name: Run gate tests — netops
+        run: uv run pytest olav-netops/tests/gates/ -q --tb=short
+
+  # ─────────────────────────────────────────────────────────────
   # Layer 2: E2E fast — no LLM required (~65s)
   # 50 tests covering platform integration without LLM/CLAB/Netmiko
   # ─────────────────────────────────────────────────────────────
@@ -211,7 +250,11 @@ jobs:
         env:
           OLAV_AUTH_MODE: none
         run: |
-          # test_phase1-4 are gitignored — only run tracked e2e files
+          # Explicit list, not `tests/e2e/`: most files here need an LLM,
+          # CLAB or Netmiko. (The old reason on this line — "test_phase1-4
+          # are gitignored" — stopped being true at the 2026-06-13/14
+          # tracking flip; those four are now tracked *redirect stubs*
+          # holding zero tests, their content having moved to tests/gates/.)
           uv run pytest \
             tests/e2e/test_m1_platform_e2e.py \
             tests/e2e/test_uks_cli.py \

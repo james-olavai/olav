@@ -40,33 +40,53 @@ _DB_SKIP = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 
 
+# Where the validated-CLI code actually lives. Two moves happened and this
+# file tracked neither: the agent directory is `netops/`, never `ops/`, and the
+# rev ~282-299 migration moved these out of `tools/` into `scripts/`. Pointing
+# at `ops/tools` meant every fixture below raised ModuleNotFoundError at setup,
+# which is a collection ERROR rather than a skip — the gates job has been red
+# since the migration, unnoticed because gitea's merge gate never ran it.
+_SCRIPTS_DIR = WORKSPACE / "netops/scripts"
+
+
+def _load_workspace_script(name: str):
+    scripts_dir = str(_SCRIPTS_DIR)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import importlib
+    return importlib.import_module(name)
+
+
 @pytest.fixture(scope="module")
 def execute_cli_mod():
-    tools_dir = str(WORKSPACE / "ops/tools")
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    import importlib
-    return importlib.import_module("execute_cli")
+    """C-NE-16's subject after `execute_cli` was retired.
+
+    The module is gone, but the claim is not: `execute_cli_parallel` carries
+    the same check, and says so in its own docstring ("Same whitelist/blacklist
+    validation as the retired execute_cli"). Repointed rather than deleted —
+    the product still rejects blacklisted commands, so the gate still has
+    something to guard.
+    """
+    return _load_workspace_script("execute_cli_parallel")
 
 
 @pytest.fixture(scope="module")
 def execute_cli_parallel_mod():
-    tools_dir = str(WORKSPACE / "ops/tools")
-    if tools_dir not in sys.path:
-        sys.path.insert(0, tools_dir)
-    import importlib
-    return importlib.import_module("execute_cli_parallel")
+    return _load_workspace_script("execute_cli_parallel")
 
 
 @pytest.fixture(scope="module")
 def diff_sql_mod():
-    # Path updated (R70): diff_sql_state moved from ops/diff/tools/ to
-    # ops/analyze/tools/ when the diff sub-skill was folded into analyze.
-    diff_dir = str(WORKSPACE / "ops/analyze/tools")
-    if diff_dir not in sys.path:
-        sys.path.insert(0, diff_dir)
-    import importlib
-    return importlib.import_module("diff_sql_state")
+    """C-NE-27's subject, now a package module rather than a workspace script.
+
+    Chased by path twice already (ops/diff/tools → ops/analyze/tools → gone).
+    The implementation settled in `olav_netops.core.diff.sql_state`, which is
+    an ordinary import — no sys.path insertion, so the next reorganisation of
+    the workspace cannot silently break this gate again.
+    """
+    from olav_netops.core.diff import sql_state
+
+    return sql_state
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +181,7 @@ class TestNE01DryRunCheck:
 
     def test_dry_run_argument_in_source(self):
         """--dry-run flag is declared in netops_init/run.py."""
-        run_py = ROOT_WORKSPACE / "ops/netops_init/run.py"
+        run_py = ROOT_WORKSPACE / "netops/netops_init/run.py"
         if not run_py.exists():
             pytest.skip("netops_init/run.py not found")
         content = run_py.read_text()
@@ -170,7 +190,7 @@ class TestNE01DryRunCheck:
 
     def test_dry_run_exits_zero_with_completion_message(self):
         """--dry-run exits 0 and prints structured completion message."""
-        run_py = ROOT_WORKSPACE / "ops/netops_init/run.py"
+        run_py = ROOT_WORKSPACE / "netops/netops_init/run.py"
         if not run_py.exists():
             pytest.skip("netops_init/run.py not found")
         result = subprocess.run(
@@ -267,22 +287,37 @@ class TestNE04TopologyLinksGenerated:
 
 
 class TestNE16BlacklistedCommandsRejected:
-    """C-NE-16: Blacklisted commands rejected by execute_cli"""
+    """C-NE-16: blacklisted commands are rejected before they reach a device.
+
+    Originally asserted against `execute_cli`, which has since been retired.
+    The claim outlived the module — `execute_cli_parallel` carries the same
+    check — so the gate follows the behaviour rather than the filename.
+    """
 
     def test_blacklist_check_code_present(self):
-        """Code gate: execute_cli.py contains blacklist checking logic."""
-        path = WORKSPACE / "ops/tools/execute_cli.py"
-        if not path.exists():
-            pytest.skip("execute_cli.py not found")
+        """Code gate: the validated-CLI script still consults the blacklist."""
+        path = _SCRIPTS_DIR / "execute_cli_parallel.py"
+        assert path.exists(), (
+            f"{path} missing — a skip here would hide the whole claim, which is "
+            "how this file stayed broken through two directory moves"
+        )
         content = path.read_text()
-        assert "blacklisted" in content, "blacklist check not found in execute_cli.py"
-        assert "BLOCKED" in content or "[BLOCKED]" in content, (
-            "Blocked response marker not found in execute_cli.py"
+        assert "blacklisted" in content, f"blacklist check not found in {path.name}"
+        # `execute_cli` signalled refusal with a "BLOCKED" marker string;
+        # `execute_cli_parallel` returns a structured {"status": "blocked"}.
+        # Assert the surviving contract, not the retired module's spelling —
+        # keeping the old marker here would only re-break the gate.
+        assert '"blocked"' in content or "'blocked'" in content, (
+            f"{path.name} has no blocked-status path — a blacklisted command "
+            "would fall through to execution"
+        )
+        assert "_validate_command" in content, (
+            f"{path.name} never calls its own validator"
         )
 
     def test_blacklisted_yaml_has_destructive_commands(self):
         """Code gate: blacklisted_commands.yaml contains write/copy operations."""
-        yaml_path = WORKSPACE / "ops/config/blacklisted_commands.yaml"
+        yaml_path = WORKSPACE / "netops/config/blacklisted_commands.yaml"
         if not yaml_path.exists():
             pytest.skip("blacklisted_commands.yaml not found")
         import yaml  # noqa: PLC0415
@@ -335,7 +370,7 @@ class TestNE24ExecuteCliParallelWhitelistValidation:
 
     def test_whitelist_validation_code_present(self):
         """Code gate: execute_cli_parallel.py calls _validate_command before SSH."""
-        path = WORKSPACE / "ops/tools/execute_cli_parallel.py"
+        path = _SCRIPTS_DIR / "execute_cli_parallel.py"
         if not path.exists():
             pytest.skip("execute_cli_parallel.py not found")
         content = path.read_text()
@@ -388,11 +423,11 @@ class TestNE27DiffSqlStateComparesSnapshots:
         original = diff_sql_mod.MAIN_DB_PATH
         diff_sql_mod.MAIN_DB_PATH = two_snapshot_db
         try:
-            result = diff_sql_mod.main({
-                "table_name": "netops.parsed_outputs",
-                "snapshot_id_1": "snap_20260226_100000",
-                "snapshot_id_2": "snap_20260226_120000",
-            })
+            result = diff_sql_mod.diff_sql_state(
+                "netops.parsed_outputs",
+                "snap_20260226_100000",
+                "snap_20260226_120000",
+            )
             assert "missing_in_t2" in result, (
                 f"Expected 'missing_in_t2' key; got keys: {list(result.keys())}"
             )
@@ -407,11 +442,11 @@ class TestNE27DiffSqlStateComparesSnapshots:
         original = diff_sql_mod.MAIN_DB_PATH
         diff_sql_mod.MAIN_DB_PATH = two_snapshot_db
         try:
-            result = diff_sql_mod.main({
-                "table_name": "netops.parsed_outputs",
-                "snapshot_id_1": "snap_20260226_100000",
-                "snapshot_id_2": "snap_20260226_120000",
-            })
+            result = diff_sql_mod.diff_sql_state(
+                "netops.parsed_outputs",
+                "snap_20260226_100000",
+                "snap_20260226_120000",
+            )
             missing = result.get("missing_in_t2", [])
             new = result.get("new_in_t2", [])
             # 'show ip route' was in snap_1 but not snap_2 → missing
@@ -432,11 +467,11 @@ class TestNE27DiffSqlStateComparesSnapshots:
         original = diff_sql_mod.MAIN_DB_PATH
         diff_sql_mod.MAIN_DB_PATH = two_snapshot_db
         try:
-            result = diff_sql_mod.main({
-                "table_name": "netops.parsed_outputs",
-                "snapshot_id_1": "snap_20260226_100000",
-                "snapshot_id_2": "snap_20260226_100000",
-            })
+            result = diff_sql_mod.diff_sql_state(
+                "netops.parsed_outputs",
+                "snap_20260226_100000",
+                "snap_20260226_100000",
+            )
             assert result.get("missing_in_t2", []) == [], (
                 f"No rows should be missing when comparing same snapshot; got: {result}"
             )
