@@ -210,6 +210,10 @@ def _mock_all_healthy(tmp_path, monkeypatch) -> None:
         "_check_workspace_integrity": "workspace",
         "_check_agents": "agents", "_check_subagents": "subagents",
         "_check_tools": "tools", "_check_memory": "memory", "_check_recall": "recall",
+        # 2026-08-06: auth + context read the real config/endpoint like the
+        # probes above, so they are stubbed here too. Each has its own module
+        # (test_doctor_auth_check / test_doctor_context_budget).
+        "_check_auth": "auth", "_check_context_budget": "context",
     }
     for _method, _name in _stub_methods.items():
         monkeypatch.setattr(
@@ -222,6 +226,7 @@ def _mock_all_healthy(tmp_path, monkeypatch) -> None:
 _ALL_CHECK_NAMES = {
     "scaffolding", "workspace", "llm", "embedding",
     "agents", "subagents", "tools", "memory", "recall",
+    "auth", "context",
 }
 
 
