@@ -46,6 +46,7 @@ class DoctorCommand(BaseCommand):
             self._check_llm(),
             self._check_embedding(),
             self._check_auth(),
+            self._check_context_budget(),
             self._check_agents(),
             self._check_subagents(),
             self._check_tools(),
@@ -295,6 +296,104 @@ class DoctorCommand(BaseCommand):
             "name": "auth",
             "ok": True,
             "detail": f"mode={mode} ({source}) → {provider}",
+            "fix": None,
+        }
+
+    @staticmethod
+    def _server_ctx_size(base_url: str, model: str) -> int | None:
+        """Best-effort: the serving context window, discovered without inference.
+
+        llama-swap's /v1/models carries each model's preset, which includes
+        ``ctx-size``. Free to read and exact. Returns None when the endpoint does
+        not expose it (a plain OpenAI endpoint, a different server), and the
+        caller then reports only what OLAV is configured for.
+        """
+        import json as _json
+        import re as _re
+        import urllib.request as _u
+
+        url = base_url.rstrip("/")
+        if url.endswith("/v1"):
+            url = url[:-3]
+        try:
+            with _u.urlopen(f"{url}/v1/models", timeout=8) as r:
+                data = _json.loads(r.read())
+        except Exception:  # noqa: BLE001
+            return None
+        for entry in data.get("data") or []:
+            if entry.get("id") != model:
+                continue
+            preset = ((entry.get("status") or {}).get("preset")) or ""
+            m = _re.search(r"^\s*ctx-size\s*=\s*(\d+)", preset, _re.M)
+            if m:
+                return int(m.group(1))
+        return None
+
+    def _check_context_budget(self) -> dict:
+        """Does OLAV's context budget fit inside what the server will accept?
+
+        An agent run that overruns the server's window fails with HTTP 400
+        ``exceed_context_size_error`` — "request (N tokens) exceeds the available
+        context size (M tokens)" — which surfaces to the user as a bare agent
+        error. The budget is what makes summarisation fire in time: deepagents
+        falls back to a 170000-token trigger when the model profile carries no
+        ``max_input_tokens``, so on a local endpoint nothing would compact before
+        the wall (agent.py sets it from llm.context_budget or the tier default).
+
+        Budget > server ctx is therefore a latent 400 on every long run, and it
+        is checkable without inference.
+        """
+        try:
+            from olav.core.config import TIER_DEFAULTS, get_llm_config
+
+            cfg = get_llm_config()
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "name": "context",
+                "ok": False,
+                "detail": f"config unreadable ({exc})",
+                "fix": "run `olav init` to create .olav/config/api.json",
+            }
+
+        explicit = cfg.context_budget
+        budget = explicit or int(
+            TIER_DEFAULTS.get(cfg.model_tier, {}).get("context_budget") or 0
+        )
+        source = "llm.context_budget" if explicit else f"tier={cfg.model_tier} default"
+        served = self._server_ctx_size(cfg.base_url or "", cfg.model or "")
+
+        if not budget:
+            return {
+                "name": "context",
+                "ok": False,
+                "detail": f"no context budget resolved ({source})",
+                "fix": "set llm.context_budget in .olav/config/api.json",
+            }
+        if served is None:
+            return {
+                "name": "context",
+                "ok": True,
+                "detail": f"budget {budget} tok ({source}); server window not advertised",
+                "fix": None,
+            }
+        if budget > served:
+            return {
+                "name": "context",
+                "ok": False,
+                "detail": (
+                    f"budget {budget} tok ({source}) exceeds the server window "
+                    f"{served} tok — long runs will fail with HTTP 400 "
+                    "exceed_context_size_error"
+                ),
+                "fix": (
+                    f"set llm.context_budget below {served} in "
+                    ".olav/config/api.json, or raise the server's ctx-size"
+                ),
+            }
+        return {
+            "name": "context",
+            "ok": True,
+            "detail": f"budget {budget} tok ({source}) fits server window {served} tok",
             "fix": None,
         }
 
