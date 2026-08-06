@@ -738,6 +738,44 @@ def _skill_install_hint(agent_id: str) -> str | None:
     return None
 
 
+def _decode_relayed_content(raw: str) -> str:
+    """Pull a sub-agent's answer out of a stringified message list.
+
+    A delegate tool result reaches the CLI as ``str()`` of the message
+    objects, so the answer sits inside a Python string *literal*:
+
+        [AIMessage(content='It\\'s down.\\nCheck Gi0/0', name='runner')]
+
+    The relay used to regex out the middle and undo ``\\n`` only, which left
+    every other escape visible to the operator — Ch5 printed
+    ``the profile\\'s`` and a bare trailing backslash at each line end.
+    Matching the full literal and letting ``ast.literal_eval`` decode it
+    handles ``\\'``, ``\\\\`` and the rest, instead of enumerating escapes by
+    hand.  Both quote styles are matched because ``repr`` switches to double
+    quotes when the content itself contains an apostrophe — the exact case
+    that produced the Ch5 output.
+
+    Returns "" when nothing looks like a relayable answer; the caller then
+    falls through to the next tier rather than printing garbage.
+    """
+    import ast
+
+    for quote in ("'", '"'):
+        pattern = rf"content=({quote}(?:[^{quote}\\]|\\.)*{quote})\s*,?\s*(?:name|additional_kwargs)="
+        found = re.findall(pattern, raw, re.DOTALL)
+        if not found:
+            continue
+        try:
+            return str(ast.literal_eval(found[-1])).strip()
+        except (ValueError, SyntaxError):  # pragma: no cover - defensive
+            # The pattern admits only well-formed literals, so this should be
+            # unreachable; keep it so a pathological payload degrades to
+            # best-effort text instead of raising inside the CLI's last
+            # chance to say anything at all.
+            return found[-1].strip(quote).replace("\\n", "\n").strip()
+    return ""
+
+
 def _is_kb_json(content: str) -> bool:
     """Return True when content is a KB-fact JSON block (semantic cache payload).
 
@@ -1556,6 +1594,25 @@ async def run_single_query(
         # appended" — see the comment there.
         _chunks_this_turn = 0
 
+        def _is_agent_turn(ev: dict) -> bool:
+            """Is this LLM call the agent's own turn, or a middleware's?
+
+            langchain compiles the agent's model call into a node literally
+            named ``model``; a middleware hook gets its own node,
+            ``f"{m.name}.after_agent"`` (langchain.agents.factory).  So an LLM
+            invoked *inside* ``aafter_agent`` — memory capture is one — streams
+            through astream_events as a depth-0 chat-model turn that is
+            indistinguishable from the answer by depth alone.  It became
+            visible when the `not _chunks` guard was replaced by a per-turn
+            one: capture's raw ```json block printed after every answer.
+
+            Fail open: an event with no node metadata is treated as the
+            agent's, because dropping it would resurrect the silent-run bug
+            that the per-turn guard exists to fix.
+            """
+            node = (ev.get("metadata") or {}).get("langgraph_node")
+            return node in (None, "", "model")
+
         async for event in _graph.astream_events(input_msg, config=config, context=_run_context, version="v2"):
             kind = event.get("event", "")
             data = event.get("data", {})
@@ -1574,7 +1631,7 @@ async def run_single_query(
                         # reporter sub-agent streamed text first, orchestrator
                         # answer appeared in AIMessage.content but was never
                         # surfaced to the CLI). See dev_docs/93 cat A.
-                        if _delegate_depth == 0:
+                        if _delegate_depth == 0 and _is_agent_turn(event):
                             console.print(text, end="")
                             _chunks.append(text)
                             _chunks_this_turn += 1
@@ -1583,7 +1640,7 @@ async def run_single_query(
                 # A new model turn begins: nothing streamed for it yet. Tracked
                 # per turn because a non-streaming model produces SEVERAL depth-0
                 # turns in one run (preamble, then the post-delegation answer).
-                if _delegate_depth == 0:
+                if _delegate_depth == 0 and _is_agent_turn(event):
                     _chunks_this_turn = 0
 
             elif kind == "on_chat_model_end":
@@ -1605,8 +1662,16 @@ async def run_single_query(
                 # i.e. the answer existed and was thrown away because the
                 # preamble had already filled _chunks (dev_docs/115 §9).
                 output = data.get("output")
-                if output and _delegate_depth == 0:
+                if output and _delegate_depth == 0 and _is_agent_turn(event):
                     text = getattr(output, "content", "")
+                    # Belt-and-braces for the fail-open branch of
+                    # _is_agent_turn: an unattributed turn carrying a KB-fact
+                    # block is memory bookkeeping, never an answer. This guard
+                    # existed only on the API-server path (line ~895) — the
+                    # local astream path never had it, which is where the
+                    # capture JSON reached the operator (dev_docs/115 §10).
+                    if isinstance(text, str) and _is_kb_json(text):
+                        text = ""
                     if text and _chunks_this_turn == 0:
                         console.print(text)
                         _chunks.append(text)
@@ -1740,8 +1805,7 @@ async def run_single_query(
                 if tr["name"] not in _SILENT_DELEGATE:
                     continue
                 _raw = tr.get("content") or ""
-                _inner = re.findall(r"content='(.*?)'\s*,?\s*name=", _raw, re.DOTALL)
-                _text = (_inner[-1] if _inner else "").replace("\\n", "\n").strip()
+                _text = _decode_relayed_content(_raw)
                 if not _text:
                     continue
                 console.print("")

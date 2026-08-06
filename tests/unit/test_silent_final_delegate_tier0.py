@@ -79,12 +79,20 @@ class TestTier0Exists:
 
 
 class TestDelegateContentExtraction:
-    """The regex Tier 0 uses, applied to the real delegate payload shape."""
+    """Tier 0's extraction, applied to the real delegate payload shape.
+
+    This used to re-implement the regex here and then assert that main.py
+    still contained a matching one — a copy that could agree with a broken
+    original. The logic now lives in an importable helper, so the tests call
+    the shipped code. Its escape handling is covered separately in
+    test_relayed_content_decoding.py.
+    """
 
     @staticmethod
     def _extract(raw: str) -> str:
-        inner = re.findall(r"content='(.*?)'\s*,?\s*name=", raw, re.DOTALL)
-        return (inner[-1] if inner else "").replace("\\n", "\n").strip()
+        from olav.cli.main import _decode_relayed_content
+
+        return _decode_relayed_content(raw)
 
     def test_recovers_the_subagent_answer(self):
         text = self._extract(_DELEGATE_CONTENT)
@@ -105,17 +113,21 @@ class TestDelegateContentExtraction:
         assert self._extract(raw) == "the real answer"
 
 
-def test_regex_in_source_matches_the_one_under_test():
-    """Guard against the test drifting away from the implementation."""
+def test_tier0_calls_the_shared_decoder():
+    """Wiring, not duplication.
+
+    The previous version scraped the inline regex out of main.py and re-ran
+    it. That guarded the wrong thing: it proved a pattern existed, not that
+    Tier 0 used a correct one — and it went red the moment the logic was
+    extracted into a helper, even though behaviour had improved.
+    """
     block = _SRC[
         _SRC.index("Tier 0: relay the sub-agent's answer when it was stranded"):
         _SRC.index("Tier 1: LLM synthesis")
     ]
-    m = re.search(r"re\.findall\(r?\"(.*?)\", _raw", block)
-    assert m, "could not find Tier 0's extraction regex in main.py"
-    pattern = m.group(1).encode().decode("unicode_escape")
-    assert re.findall(pattern, _DELEGATE_CONTENT, re.DOTALL), (
-        f"main.py's pattern {pattern!r} does not match the real payload shape"
+    assert "_decode_relayed_content(_raw)" in block, (
+        "Tier 0 must use the shared decoder — an inline regex here has "
+        "silently diverged from its tests once already"
     )
 
 
