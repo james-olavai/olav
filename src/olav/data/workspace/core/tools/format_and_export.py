@@ -14,11 +14,38 @@ Design:
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import tool
+
+
+_DATE_TOKEN_RE = re.compile(
+    r"(?P<sep>[_-])(?P<date>\d{4}(?P<d1>[_-]?)\d{2}(?P<d2>[_-]?)\d{2})(?=$|[_-])"
+)
+
+
+def _correct_wrong_date(name: str) -> str:
+    """Replace a date-shaped token that is not today's date, keeping its format.
+
+    Returns ``name`` untouched when it carries no date, or when the date it
+    carries is already correct — including the format it was written in, so a
+    truthful ``core_topology_2026-08-06`` is not rewritten into another
+    convention.
+    """
+    now = datetime.now()
+
+    def _sub(m: re.Match) -> str:
+        d1, d2 = m.group("d1"), m.group("d2")
+        # Rebuild in the separator style the model used, so only the digits move.
+        correct = f"{now:%Y}{d1}{now:%m}{d2}{now:%d}"
+        if m.group("date") == correct:
+            return m.group(0)
+        return f"{m.group('sep')}{correct}"
+
+    return _DATE_TOKEN_RE.sub(_sub, name, count=1)
 
 
 @tool
@@ -185,6 +212,23 @@ def format_and_export(
              format = actual_format
     else:
         filename = p.name
+
+    # 6b. Correct a date the model got wrong — never add one.
+    #
+    # Observed on the demo VM: a change plan drafted 2026-08-06 was exported as
+    # `redundant_ebgp_uplink_alpha_20250522.md`, and an earlier run produced
+    # `..._20231027.md`. The content was right both times; only the name lied,
+    # which is the worst place for it, because the filename is what an operator
+    # sorts, greps and cites by. A date is a fact this process knows and the
+    # model does not.
+    #
+    # Deliberately conservative: only a date-shaped token that is NOT today is
+    # replaced, and the model's own format is preserved. The same run wrote
+    # `core_topology_2026-08-06.drawio` with the date correct, and renaming that
+    # to a different convention would be a regression, not a fix. Filenames
+    # with no date are left alone — stamping every export would be intrusive
+    # and CSV exports already carry their own timestamp.
+    filename = _correct_wrong_date(filename)
 
     if ".." in filename or filename.startswith("/"):
         raise ValueError(f"Invalid filename: {filename}. Cannot contain '..' or start with '/'")

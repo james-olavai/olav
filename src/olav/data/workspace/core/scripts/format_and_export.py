@@ -15,9 +15,36 @@ Design:
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+
+_DATE_TOKEN_RE = re.compile(
+    r"(?P<sep>[_-])(?P<date>\d{4}(?P<d1>[_-]?)\d{2}(?P<d2>[_-]?)\d{2})(?=$|[_-])"
+)
+
+
+def _correct_wrong_date(name: str) -> str:
+    """Replace a date-shaped token that is not today's date, keeping its format.
+
+    Returns ``name`` untouched when it carries no date, or when the date it
+    carries is already correct — including the format it was written in, so a
+    truthful ``core_topology_2026-08-06`` is not rewritten into another
+    convention.
+    """
+    now = datetime.now()
+
+    def _sub(m: re.Match) -> str:
+        d1, d2 = m.group("d1"), m.group("d2")
+        # Rebuild in the separator style the model used, so only the digits move.
+        correct = f"{now:%Y}{d1}{now:%m}{d2}{now:%d}"
+        if m.group("date") == correct:
+            return m.group(0)
+        return f"{m.group('sep')}{correct}"
+
+    return _DATE_TOKEN_RE.sub(_sub, name, count=1)
 
 
 def format_and_export(
@@ -225,6 +252,11 @@ def format_and_export(
              format = actual_format
     else:
         filename = p.name
+
+    # Correct a date the model invented — see the tools/ copy for the full
+    # rationale. Only a wrong date is replaced; the model's separator style and
+    # date-free names are left alone.
+    filename = _correct_wrong_date(filename)
 
     if ".." in filename or filename.startswith("/"):
         raise ValueError(f"Invalid filename: {filename}. Cannot contain '..' or start with '/'")

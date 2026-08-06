@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import sys
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -38,6 +39,28 @@ def _find_root() -> Path:
 
 
 sys.path.insert(0, str(_find_root() / "src"))
+
+
+_DATE_TAIL_RE = re.compile(
+    r"[_-]?(?:\d{8}|\d{4}[_-]\d{2}[_-]\d{2}|\d{6})$"
+)
+
+
+def _dated_stem(stem: str) -> str:
+    """Stamp the filename with today's date, from Python rather than the model.
+
+    The model used to supply the whole basename, and it invented the date: a
+    plan drafted on 2026-08-06 was written as
+    ``redundant_bgp_alpha_20231027.md``. The content was correct — only the
+    name lied, which is the worst place for it, because the name is what an
+    operator sorts and cites by.
+
+    A date is a fact the process knows and the model does not, so the process
+    supplies it. Any date-looking suffix the model added is stripped first, so
+    a well-behaved model does not end up with two.
+    """
+    base = _DATE_TAIL_RE.sub("", stem.strip().rstrip("_-")) or "change_plan"
+    return f"{base}_{datetime.now().strftime('%Y%m%d')}"
 
 
 def generate_change_plan(
@@ -207,7 +230,7 @@ def generate_change_plan(
     # ── Step 4: Write to disk ──────────────────────────────────────────────
     out_dir = Path("exports") / "change_plans"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{output_filename}.md"
+    out_path = out_dir / f"{_dated_stem(output_filename)}.md"
     out_path.write_text(markdown, encoding="utf-8")
 
     return {
