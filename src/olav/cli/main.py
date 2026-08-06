@@ -738,6 +738,16 @@ def _skill_install_hint(agent_id: str) -> str | None:
     return None
 
 
+# A complete Python string literal after `content=`, in either quote style.
+# Deliberately NOT anchored on the key that follows: deepagents builds the
+# delegate result as `ToolMessage(content, tool_call_id=...)` with no `name`,
+# so the long-standing `...'\s*,?\s*name=` anchor never matched a real `task`
+# payload — Tier 0 has been silently returning "" for the exact tool it was
+# written for (dev_docs/115 §12). Matching the literal itself is unambiguous
+# enough to need no trailing anchor.
+_RELAYED_CONTENT_RE = r"""content=('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")"""
+
+
 def _decode_relayed_content(raw: str) -> str:
     """Pull a sub-agent's answer out of a stringified message list.
 
@@ -760,20 +770,17 @@ def _decode_relayed_content(raw: str) -> str:
     """
     import ast
 
-    for quote in ("'", '"'):
-        pattern = rf"content=({quote}(?:[^{quote}\\]|\\.)*{quote})\s*,?\s*(?:name|additional_kwargs)="
-        found = re.findall(pattern, raw, re.DOTALL)
-        if not found:
-            continue
-        try:
-            return str(ast.literal_eval(found[-1])).strip()
-        except (ValueError, SyntaxError):  # pragma: no cover - defensive
-            # The pattern admits only well-formed literals, so this should be
-            # unreachable; keep it so a pathological payload degrades to
-            # best-effort text instead of raising inside the CLI's last
-            # chance to say anything at all.
-            return found[-1].strip(quote).replace("\\n", "\n").strip()
-    return ""
+    found = re.findall(_RELAYED_CONTENT_RE, raw, re.DOTALL)
+    if not found:
+        return ""
+    try:
+        return str(ast.literal_eval(found[-1])).strip()
+    except (ValueError, SyntaxError):  # pragma: no cover - defensive
+        # The pattern admits only well-formed literals, so this should be
+        # unreachable; keep it so a pathological payload degrades to
+        # best-effort text instead of raising inside the CLI's last chance
+        # to say anything at all.
+        return found[-1].strip("'\"").replace("\\n", "\n").strip()
 
 
 def _is_kb_json(content: str) -> bool:

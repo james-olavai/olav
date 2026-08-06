@@ -63,6 +63,43 @@ class TestEscapesAreDecoded:
         assert out.count("\n") == 1
 
 
+class TestTheRealDeepagentsPayload:
+    """Built by the library, not hand-written — the shape the fixtures missed.
+
+    `_build_task_tool` returns `Command(update={..., "messages":
+    [ToolMessage(content, tool_call_id=tool_call_id)]})`. No `name` is passed,
+    so `name=` never appears in the repr — and both the original pattern and
+    its first replacement anchored on `\\s*,?\\s*name=`. Tier 0 therefore
+    returned "" for every `task` result: the one tool it exists to relay.
+    Hand-written fixtures all carried `name='task'`, so nothing caught it.
+    """
+
+    @staticmethod
+    def _payload(body: str) -> str:
+        from langchain_core.messages import ToolMessage
+        from langgraph.types import Command
+
+        return str(
+            Command(
+                update={
+                    "files": {},
+                    "messages": [ToolMessage(body, tool_call_id="abc")],
+                }
+            )
+        )
+
+    def test_answer_is_recovered_from_a_library_built_payload(self):
+        body = "Total Devices: 339\nPlatforms: cisco_ios"
+        assert _decode_relayed_content(self._payload(body)) == body
+
+    def test_mixed_quotes_survive_the_round_trip(self):
+        """Both quote characters present is what forces repr to escape — and
+        it is the ordinary case for audit output (`the profile's` next to
+        `"🔴 down"`)."""
+        body = 'the profile\'s limit, with "🔴 down" interfaces\nsecond line'
+        assert _decode_relayed_content(self._payload(body)) == body
+
+
 class TestNonAnswersFallThrough:
     @pytest.mark.parametrize("raw", ["", "no message here", "[ToolMessage(x=1)]"])
     def test_nothing_relayable_returns_empty(self, raw):
