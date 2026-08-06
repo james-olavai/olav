@@ -3,8 +3,29 @@
 Three primitives, each with strict input validation.  See dev_docs/78
 §4 for the full design contract.
 
+Where the pieces live, because they are spread across three units and
+this docstring used to get it wrong.  The explorer agent moved to
+olav-presales on 2026-08-06; its scripts call the primitives below; and
+the tables those primitives write are netops-domain
+(``netops.exploration_runs`` / ``netops.exploration_findings``), created
+by ``olav_netops.migrations.v0_23_exploration`` via the guarded reverse
+import in ``start_exploration`` (ADR-0002 — optional, with a clear error
+when olav-netops is absent).
+
+    olav-presales/…/explorer/scripts  →  this module  →  olav_netops.migrations
+
+That is the only arrangement in which no unit crosses a boundary it is
+not allowed to: presales→platform and platform→netops-when-present are
+both permitted, whereas presales→netops directly is not.  So this module
+stays in the platform even though its only consumer is now a presales
+agent.
+
 Anti-fabrication invariants enforced HERE (in Python) AND at the DB
-layer (NOT NULL + UNIQUE in v0_23 migration):
+layer.  The DB half is ``evidence_sql NOT NULL`` plus
+``UNIQUE (run_id, summary)`` in ``olav_netops.migrations.v0_23_exploration``
+— NOT the platform's ``v0_23_audit_routing``, which this docstring named
+for months and which only adds two routing columns to ``audit_runs``.
+The version numbers collide across packages; the tables are netops's:
 
   1. ``evidence_sql`` cannot be empty / whitespace-only — every
      recorded finding must reference the query that proved it.
