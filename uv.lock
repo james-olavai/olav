@@ -1990,22 +1990,6 @@ wheels = [
 ]
 
 [[package]]
-name = "langchain-mistralai"
-version = "1.1.6"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "httpx" },
-    { name = "httpx-sse" },
-    { name = "langchain-core" },
-    { name = "pydantic" },
-    { name = "tokenizers" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/70/92/d15c0640bf77908b765d76f46d7123d7b82b34b04dfad2838b68143f38f7/langchain_mistralai-1.1.6.tar.gz", hash = "sha256:c2694828adee61a497c571e25eaba1472095cd1d1f260a7fe15a6e60f9ece039", size = 157112, upload-time = "2026-07-05T21:30:23.059Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5e/db/b727cd6e8083a48e4d0aba542f1454a50510d59b24476888af94b038be15/langchain_mistralai-1.1.6-py3-none-any.whl", hash = "sha256:0aa59b313b406ee934dc0431873b0e11849d8d746a6a7e281103c6848a9b1319", size = 22806, upload-time = "2026-07-05T21:30:21.84Z" },
-]
-
-[[package]]
 name = "langchain-ollama"
 version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3199,9 +3183,6 @@ local-embed = [
     { name = "langchain-huggingface" },
     { name = "sentence-transformers" },
 ]
-mistral = [
-    { name = "langchain-mistralai" },
-]
 redaction = [
     { name = "netconan" },
 ]
@@ -3244,7 +3225,6 @@ requires-dist = [
     { name = "langchain-google-genai", specifier = ">=4.2" },
     { name = "langchain-groq", specifier = ">=1.1" },
     { name = "langchain-huggingface", marker = "extra == 'local-embed'", specifier = ">=0.1.0" },
-    { name = "langchain-mistralai", marker = "extra == 'mistral'", specifier = ">=1.1" },
     { name = "langchain-ollama", specifier = ">=0.1.0" },
     { name = "langchain-openai", specifier = ">=0.0.1" },
     { name = "langchain-openrouter", specifier = ">=0.2.7" },
@@ -3276,7 +3256,7 @@ requires-dist = [
     { name = "tenacity", specifier = ">=8.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
 ]
-provides-extras = ["dev", "tui", "mistral", "local-embed", "graph", "redaction"]
+provides-extras = ["dev", "tui", "local-embed", "graph", "redaction"]
 
 [package.metadata.requires-dev]
 dev = [
