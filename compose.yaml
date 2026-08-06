@@ -1,0 +1,134 @@
+# OLAV — two ways to run it, selected by profile.
+#
+#   Platform only:
+#       docker compose run --rm olav doctor
+#       docker compose run --rm olav --agent core "how many devices are there?"
+#
+#   Platform + network domain (adds olav-netops and Batfish):
+#       docker compose --profile netops up -d batfish
+#       docker compose --profile netops run --rm olav-netops doctor
+#
+# `run`, not `up`. OLAV is an interactive terminal application, not a server:
+# there is nothing to daemonise, and `up olav` would start a container that
+# immediately exits. Only the supporting services (Batfish) are long-running,
+# which is why they are the only ones you `up`.
+#
+# First use, in either profile:
+#       docker compose run --rm olav init          # scaffolds /data/.olav
+#       docker compose run --rm olav-netops agent install olav-netops
+#
+# Configuration comes from .env (see .env.example). Nothing here hardcodes an
+# endpoint or a key: OLAV talks to whatever LLM and embedding servers you point
+# it at, including ones on your own network.
+
+x-olav-env: &olav-env
+  # OLAV_HOME is the PARENT of `.olav/`, not the `.olav` directory. Pointing it
+  # at the inner path yields `.olav/.olav/config/api.json` and a doctor that
+  # reports missing scaffolding.
+  OLAV_HOME: /data
+  # No login on a single-operator install: the OS user is admin. Set to `token`
+  # only with olav-ent present, which is what ships the token provider — a bare
+  # platform install with `token` passes `init` and then fails every query.
+  OLAV_AUTH_MODE: ${OLAV_AUTH_MODE:-none}
+
+  # ── LLM ────────────────────────────────────────────────────────────────────
+  OLAV_LLM_API_KEY: ${OLAV_LLM_API_KEY:-}
+  # small ≈8K usable context / medium ≈32K / large ≥200K. This drives recall
+  # top_k and the SQL row cap, so an over-stated tier quietly overruns the
+  # window; `olav doctor` compares the budget against what the server advertises.
+  OLAV_LLM_MODEL_TIER: ${OLAV_LLM_MODEL_TIER:-medium}
+  OLAV_LLM_CONTEXT_BUDGET: ${OLAV_LLM_CONTEXT_BUDGET:-}
+
+  # ── Embeddings ─────────────────────────────────────────────────────────────
+  # `api` (default) calls an endpoint. `local` runs sentence-transformers in
+  # process and needs the [local-embed] extra, which this image does not install
+  # — it pulls a CUDA runtime and ~33 MB+ of wheels.
+  OLAV_EMBEDDING_MODE: ${OLAV_EMBEDDING_MODE:-api}
+  OLAV_EMBEDDING_BASE_URL: ${OLAV_EMBEDDING_BASE_URL:-}
+  OLAV_EMBEDDING_MODEL: ${OLAV_EMBEDDING_MODEL:-}
+  OLAV_EMBEDDING_API_KEY: ${OLAV_EMBEDDING_API_KEY:-}
+  # Some embedding servers reject long inputs rather than truncating: a 512-token
+  # ubatch returns HTTP 500 past roughly 1000 characters. Raise this only
+  # together with the server's batch size.
+  OLAV_EMBED_MAX_CHARS: ${OLAV_EMBED_MAX_CHARS:-}
+
+services:
+  # ── Platform only ──────────────────────────────────────────────────────────
+  olav:
+    build:
+      context: .
+      target: olav
+    image: olav:local
+    environment: *olav-env
+    volumes:
+      # One mount, because everything OLAV persists lives under OLAV_HOME:
+      # .olav/config (api.json), .olav/databases (DuckDB + LanceDB),
+      # .olav/workspace (agents, deployed by `init`), and exports/.
+      - olav-data:/data
+    # Interactive: the TUI needs a terminal, and approval prompts need stdin.
+    stdin_open: true
+    tty: true
+    # An LLM endpoint on the host is reachable as host.docker.internal. Harmless
+    # when the endpoint is elsewhere on the network.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── Platform + network domain ─────────────────────────────────────────────
+  olav-netops:
+    profiles: ["netops"]
+    build:
+      context: .
+      target: olav-netops
+    image: olav-netops:local
+    environment:
+      <<: *olav-env
+      # Batfish is a sibling container, so the netops default of localhost —
+      # which inside a container means this container — would not find it.
+      BATFISH_HOST: batfish
+      # Credentials for reaching lab or production devices over SSH. Named
+      # CLAB_USERNAME because that is the name the rest of the system uses.
+      CLAB_USERNAME: ${CLAB_USERNAME:-}
+      CLAB_PASSWORD: ${CLAB_PASSWORD:-}
+    volumes:
+      - olav-data:/data
+      # Read-only SSH keys, if you authenticate to devices by key.
+      - ${SSH_KEY_DIR:-./.ssh-empty}:/home/olav/.ssh:ro
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      batfish:
+        condition: service_healthy
+
+  # ── Batfish: configuration analysis for the netops profile ────────────────
+  # The only service here that is genuinely long-running, so the only one you
+  # `up`. netops talks to 9996/9997; 8888 is the coordinator UI.
+  batfish:
+    profiles: ["netops"]
+    image: batfish/allinone:latest
+    container_name: olav-batfish
+    ports:
+      - "${BATFISH_PORT_9996:-9996}:9996"
+      - "${BATFISH_PORT_9997:-9997}:9997"
+      - "${BATFISH_PORT_8888:-8888}:8888"
+    volumes:
+      - batfish-data:/data
+    restart: unless-stopped
+    healthcheck:
+      # Batfish exposes no HTTP health path, so probe the port netops actually
+      # uses. It takes a while to come up, hence the start_period — without it
+      # `depends_on: service_healthy` fails a cold start.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/9996' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+volumes:
+  # Named rather than a bind mount: the DuckDB and LanceDB files are the state
+  # that matters, and a named volume survives `down` while keeping ownership
+  # consistent with the image's uid 1000. Bind-mount instead
+  # (`- ./olav-data:/data`) if you want the exports on your host filesystem.
+  olav-data:
+  batfish-data:

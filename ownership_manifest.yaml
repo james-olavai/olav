@@ -168,6 +168,38 @@ rules:
     enforced: true
     git: track
 
+  # Container packaging. Tracked but excluded from the wheel by
+  # `packages = ["src/olav"]` — release hygiene is the wheel's job, not
+  # gitignore's, so these stay visible in git and out of the distribution.
+  - pattern: Dockerfile
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: compose.yaml
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  - pattern: docs-docker.md
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
+  # Template only — the real `.env` is git:secret (see the .env rule).
+  - pattern: .env.docker.example
+    owner: olav
+    class: platform
+    status: authoritative
+    enforced: true
+    git: track
+
   - pattern: LICENSE
     owner: olav
     class: platform
