@@ -14,6 +14,7 @@ the failure this guards against.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 
 import pytest
@@ -56,6 +57,27 @@ def test_example_template_parses(rel: str):
             yaml.safe_load(text)
         except yaml.YAMLError as exc:
             pytest.fail(f"{rel} is not valid YAML: {exc}")
+    elif suffix == ".docker" or path.name.startswith(".env"):
+        # dotenv templates. `.env.docker.example` strips to ".docker", and a
+        # plain `.env.example` strips to "" — neither is a format name, so match
+        # on the filename instead. No parser existed for these until 2026-08-07,
+        # which meant every env template shipped unvalidated: a stray space
+        # around `=` or an unquoted `#` mid-value is silently a different value.
+        for i, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            assert "=" in stripped, f"{rel}:{i} is neither a comment nor KEY=value: {line!r}"
+            # Take the key from the RAW line: stripping first would eat the very
+            # leading space this is meant to catch, making the check vacuous.
+            key = line.split("=", 1)[0]
+            assert key == key.strip(), (
+                f"{rel}:{i} has whitespace around the key — docker compose reads "
+                f"it literally, so ` FOO=1` sets a variable named ' FOO': {line!r}"
+            )
+            assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key), (
+                f"{rel}:{i} is not a usable variable name: {key!r}"
+            )
     else:
         pytest.fail(
             f"{rel} has unrecognised template type {suffix!r} — add a parser "
