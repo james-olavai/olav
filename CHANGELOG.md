@@ -5,6 +5,52 @@ All notable changes to OLAV will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-08-07
+
+Minor rather than patch because the platform wheel loses an agent — see Removed.
+Everything else is fixes to things that were quietly wrong: a query shape that
+crashed, filenames that carried invented dates, hooks that ran twice.
+
+### Removed
+- **The `explorer` agent has moved to olav-presales.** A platform-only install
+  no longer has it, so `--agent audit "find issues"` will not route to
+  open-ended discovery; `audit` keeps `runner` and `author` (profile-driven
+  checks and profile authoring). It is an open-ended "senior architect"
+  assessment persona, which is presales work, and its six network-type
+  playbooks are presales content — they were shipping in the platform wheel
+  while declaring `agent: netops`, a three-way disagreement between where they
+  lived, who could recall them and who owns them. Install olav-presales to keep
+  it.
+
+### Added
+- **Docker deployment.** `Dockerfile` + `compose.yaml` build two images —
+  platform only, and platform plus the network domain with Batfish alongside.
+  Note `run`, not `up`: OLAV is an interactive terminal application, so
+  `docker compose up olav` starts a container that immediately exits.
+
+### Fixed
+- **Queries selecting stored config text crashed** with `'str' object has no
+  attribute 'items'`. A per-field size budget was being applied to whole rows,
+  so any row wide enough to trip it stopped being a row. Every query touching
+  `raw_output` was affected.
+- **Exported filenames carried dates the model invented** — a plan drafted on
+  2026-08-06 was written as `..._20250522.md`. The content was right; only the
+  name lied, which is the worst place for it, because the name is what you sort
+  and cite by. A wrong date is now corrected; a right one is left exactly as
+  written, and a filename with no date does not gain one.
+- **A repeated query left duplicate CSVs.** Exports are content-addressed, so an
+  identical result set reuses its file rather than writing a byte-identical
+  second copy that nothing cites.
+- **`aafter_agent` hooks ran twice per query**, costing a second memory-capture
+  LLM round-trip and writing duplicate memories, because a workaround for
+  deepagents 0.5.2 outlived the 0.6 upgrade that made it unnecessary.
+
+### Changed
+- **`execute_sql`'s auto-export is announced deterministically.** When rows are
+  capped to fit the model's context and the full result goes to a file, the CLI
+  states the row count, the path, and how much you were actually shown, instead
+  of relying on the model to mention it.
+
 ## [0.26.0] - 2026-08-06
 
 Minor release. The theme is **making silent behaviour visible**: an import that
