@@ -27,6 +27,26 @@ With Batfish simulation support:
 pip install "olav-netops[sim]"
 ```
 
+### Docker
+
+The platform repo ships a compose profile that builds this package in and
+starts Batfish alongside it:
+
+```bash
+docker compose --profile netops up -d batfish                        # wait for healthy
+docker compose --profile netops run --rm olav-netops agent install olav-netops
+docker compose --profile netops run --rm olav-netops doctor
+docker compose --profile netops run --rm olav-netops --agent netops "/netops_init"
+```
+
+`run`, not `up`, for the agent itself — Batfish is the only long-running service
+here. Device credentials come from `CLAB_USERNAME` / `CLAB_PASSWORD`; mount a key
+directory with `SSH_KEY_DIR` for key-based access.
+
+Containerlab is **not** run inside the container: it needs the host's network
+namespace and Docker socket. Run it on the host and let the netops agent reach
+the resulting devices over the network.
+
 ## What it adds
 
 | Agent | Capabilities |

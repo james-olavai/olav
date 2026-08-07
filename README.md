@@ -176,6 +176,20 @@ olav "how many devices are in NetBox?"
 > non-interactively (set `OPENAI_API_KEY` or edit `.olav/config/api.json`
 > for the key). Check any installation's health with `olav doctor`.
 
+### Docker
+
+```bash
+cp .env.docker.example .env          # endpoint + key
+docker compose run --rm olav init    # scaffolds /data/.olav
+docker compose run --rm olav doctor  # 11 checks, no model calls
+docker compose run --rm olav --agent core "how many devices are there?"
+```
+
+`run`, not `up`. OLAV is an interactive terminal application, not a server, so
+`docker compose up olav` would start a container that immediately exits. State
+lives in one named volume; add the network domain with
+`docker compose --profile netops`. See [docs-docker.md](docs-docker.md).
+
 ### Network Operations (optional)
 
 ```bash
